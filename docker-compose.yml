@@ -1,0 +1,174 @@
+services:
+
+  ecom-discovery-service:
+    build: ./discovery-service
+    image: my-ecom-discovery-service:v1
+    container_name: ecom-discovery-service
+    ports:
+      - "8761:8761"
+    expose:
+      - "8761"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8761/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  ecom-config-service:
+    build: ./config-service
+    image: my-ecom-config-service:v1
+    container_name: ecom-config-service
+    ports:
+      - "9999:9999"
+    expose:
+      - "9999"
+    environment:
+      - DISCOVERY_SERVICE_URL=http://ecom-discovery-service:8761/eureka
+    restart: unless-stopped
+    depends_on:
+      ecom-discovery-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9999/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  ecom-customer-db-mysql:
+    image: mysql:8.0
+    container_name: ecom-customer-db-mysql
+    ports:
+      - "3307:3306"
+    expose:
+          - "3307"
+    environment:
+      MYSQL_ROOT_PASSWORD: 12345
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_DATABASE: customers-db
+      MYSQL_USER: ecom_user
+      MYSQL_PASSWORD: ecom_password
+    volumes:
+      - mysql-data:/var/lib/mysql
+    restart: no
+    depends_on:
+      ecom-config-service:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p12345" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  ecom-customer-service:
+    build: ./customer-service
+    image: my-ecom-customer-service:v1
+    container_name: ecom-customer-service
+    ports:
+      - "8081:8081"
+    expose:
+      - "8081"
+    environment:
+      DISCOVERY_SERVICE_URL: "http://ecom-discovery-service:8761/eureka"
+      CONFIG_SERVICE_URL: "http://ecom-config-service:9999"
+
+      SPRING_DATASOURCE_URL: "jdbc:mysql://ecom-customer-db-mysql:3306/customers-db?createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true&useSSL=false&serverTimezone=UTC"
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: "com.mysql.cj.jdbc.Driver"
+      SPRING_DATASOURCE_USERNAME: "root"
+      SPRING_DATASOURCE_PASSWORD: "12345"
+    depends_on:
+      ecom-customer-db-mysql:
+        condition: service_healthy
+      ecom-config-service:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8081/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: no
+
+  ecom-inventory-service:
+    build: ./inventory-service
+    image: my-ecom-inventory-service:v1
+    container_name: ecom-inventory-service
+    ports:
+      - "8082:8082"
+    expose:
+      - "8082"
+    environment:
+      - DISCOVERY_SERVICE_URL=http://ecom-discovery-service:8761/eureka
+      - CONFIG_SERVICE_URL=http://ecom-config-service:9999
+    restart: unless-stopped
+    depends_on:
+      ecom-config-service:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8082/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  ecom-billing-service:
+    build: ./billing-service
+    image: my-ecom-billing-service:v1
+    container_name: ecom-billing-service
+    ports:
+      - "8083:8083"
+    expose:
+      - "8083"
+    environment:
+      - DISCOVERY_SERVICE_URL=http://ecom-discovery-service:8761/eureka
+      - CONFIG_SERVICE_URL=http://ecom-config-service:9999
+    restart: unless-stopped
+    depends_on:
+      ecom-config-service:
+        condition: service_healthy
+      ecom-customer-service:
+        condition: service_healthy
+      ecom-inventory-service:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8083/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+
+  ecom-gateway-service:
+    build: ./gateway-service
+    image: my-ecom-gateway-service:v1
+    container_name: ecom-gateway-service
+    ports:
+      - "8888:8888"
+    expose:
+      - "8888"
+    environment:
+      - DISCOVERY_SERVICE_URL=http://ecom-discovery-service:8761/eureka
+      - CONFIG_SERVICE_URL=http://ecom-config-service:9999
+    restart: unless-stopped
+    depends_on:
+      ecom-config-service:
+        condition: service_healthy
+      ecom-customer-service:
+        condition: service_healthy
+      ecom-inventory-service:
+        condition: service_healthy
+      ecom-billing-service:
+        condition: service_healthy
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8888/actuator/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+
+volumes:
+  mysql-data:
